@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <base href="/guide/">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Аверс · Старт в GitLab</title>
+  <link rel="icon" type="image/png" href="assets/logos/logo-avers-icon.png" />
+  <style>
+    /* Tokens from avers-sales-doc (.theme-avers) */
+    :root {
+      --color-navy: #7c818a;
+      --color-accent: #d81818;
+      --color-accent-hover: #bc0000;
+      --color-accent-light: #fceded;
+      --color-corner: #d81818;
+      --color-corner-neutral: #1f2937;
+      --color-bg: #f3f4f6;
+      --color-surface: #ffffff;
+      --color-surface-muted: #f9fafb;
+      --color-border: #e5e7eb;
+      --color-border-strong: #d1d5db;
+      --color-text: #1f2937;
+      --color-text-muted: #6b7280;
+      --color-text-secondary: #4b5563;
+      --color-sidebar-text: #ffffff;
+      --color-ok: #10b981;
+      --color-ok-hover: #059669;
+      --color-sky: #2563eb;
+      --color-sky-hover: #1d4ed8;
+      --btn-bg: #f1f5f9;
+      --btn-border: #e2e8f0;
+      --radius: 12px;
+      --shadow: 0 2px 14px rgba(124, 129, 138, 0.07), 0 1px 4px rgba(124, 129, 138, 0.04);
+      --sidebar-width: 240px;
+      --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { height: 100%; }
+
+    body {
+      font-family: var(--font);
+      color: var(--color-text);
+      background: var(--color-bg);
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app {
+      display: flex;
+      min-height: 100vh;
+      align-items: flex-start;
+    }
+
+    /* —— Sidebar (как в конструкторе) —— */
+    .sidebar {
+      width: var(--sidebar-width);
+      background: var(--color-navy);
+      color: var(--color-sidebar-text);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      border-right: 1px solid rgba(255, 255, 255, 0.06);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .sidebar__brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 64px;
+      padding: 0 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .sidebar__brand img {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+    }
+
+    .sidebar__brand-name {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+
+    .sidebar__nav {
+      padding: 16px 12px;
+      flex: 1;
+    }
+
+    .sidebar__label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0.55;
+      padding: 0 8px;
+      margin-bottom: 8px;
+    }
+
+    .sidebar__link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.85);
+      text-decoration: none;
+      margin-bottom: 4px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .sidebar__link:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+    }
+
+    .sidebar__link--active {
+      background: #db4040;
+      color: #fff;
+    }
+
+    .sidebar__link--active:hover {
+      background: #db4040;
+    }
+
+    .sidebar__link span.ico {
+      width: 18px;
+      text-align: center;
+      opacity: 0.9;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    .sidebar__foot {
+      padding: 14px 16px 18px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 11px;
+      opacity: 0.65;
+      line-height: 1.4;
+    }
+
+    /* —— Main —— */
+    .main {
+      flex: 1;
+      min-width: 0;
+      padding: 24px 32px 40px;
+      overflow-x: hidden;
+    }
+
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-bottom: 28px;
+      animation: rise 0.45s ease both;
+    }
+
+    .page-header h1 {
+      font-size: 20px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: -0.3px;
+      line-height: 1.2;
+      margin-bottom: 4px;
+    }
+
+    .page-header__sub {
+      font-size: 13px;
+      color: var(--color-text-muted);
+      max-width: 34rem;
+    }
+
+    .status-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #f1f5f9;
+      padding: 6px 12px;
+      border-radius: 20px;
+      border: 1px solid #e2e8f0;
+      font-size: 11px;
+      font-weight: 600;
+      color: #475569;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--color-ok);
+      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+    }
+
+    /* Corner frames */
+    .corner-frame {
+      position: relative;
+      background: var(--color-surface);
+      padding: 20px 24px;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      animation: rise 0.5s ease both;
+      scroll-margin-top: 24px;
+    }
+
+    .corner-frame:nth-of-type(1) { animation-delay: 0.05s; }
+    .corner-frame:nth-of-type(2) { animation-delay: 0.1s; }
+    .corner-frame:nth-of-type(3) { animation-delay: 0.15s; }
+    .corner-frame:nth-of-type(4) { animation-delay: 0.2s; }
+
+    .corner {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      pointer-events: none;
+    }
+
+    .corner-tl {
+      top: 0; left: 0;
+      border-top: 3px solid var(--color-corner-neutral);
+      border-left: 3px solid var(--color-corner-neutral);
+    }
+
+    .corner-tr {
+      top: 0; right: 0;
+      border-top: 3px solid var(--color-corner);
+      border-right: 3px solid var(--color-corner);
+    }
+
+    .corner-bl {
+      bottom: 0; left: 0;
+      border-bottom: 3px solid var(--color-corner);
+      border-left: 3px solid var(--color-corner);
+    }
+
+    .corner-br {
+      bottom: 0; right: 0;
+      border-bottom: 3px solid var(--color-corner-neutral);
+      border-right: 3px solid var(--color-corner-neutral);
+    }
+
+    .corner-frame--accent .corner-tl,
+    .corner-frame--accent .corner-br {
+      border-color: var(--color-corner);
+    }
+
+    .flow {
+      display: grid;
+      gap: 16px;
+    }
+
+    .step-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .num {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--color-navy);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .corner-frame--accent .num {
+      background: var(--color-accent);
+    }
+
+    .when {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--color-accent);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 2px;
+    }
+
+    .step-head h2 {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--color-text);
+      margin: 8px 0 14px;
+    }
+
+    .section-title__line {
+      width: 4px;
+      height: 16px;
+      border-radius: 2px;
+      background: var(--color-accent);
+      flex-shrink: 0;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .block h3 {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--color-text-muted);
+      margin-bottom: 8px;
+    }
+
+    ol.actions, ul.actions {
+      list-style: none;
+      display: grid;
+      gap: 8px;
+    }
+
+    ol.actions li, ul.actions li {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px 6px;
+      font-size: 13px;
+    }
+
+    ol.actions li::before {
+      content: attr(data-n);
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      border-radius: 6px;
+      background: var(--btn-bg);
+      border: 1px solid var(--btn-border);
+      display: grid;
+      place-items: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--color-text-secondary);
+    }
+
+    /* Кнопки в стиле GitLab UI (узнаваемые) */
+    .gbtn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1;
+      padding: 6px 9px;
+      border-radius: 4px;
+      border: 1px solid var(--btn-border);
+      background: #fff;
+      color: var(--color-text);
+      white-space: nowrap;
+    }
+
+    .gbtn.primary {
+      background: var(--color-sky);
+      border-color: var(--color-sky-hover);
+      color: #fff;
+    }
+
+    .gbtn.success {
+      background: var(--color-ok);
+      border-color: var(--color-ok-hover);
+      color: #fff;
+    }
+
+    .gbtn.ghost { background: var(--btn-bg); }
+
+    .menu {
+      font-weight: 600;
+      color: var(--color-sky);
+      border-bottom: 1px dashed rgba(37, 99, 235, 0.35);
+    }
+
+    .hint {
+      margin-top: 14px;
+      padding: 10px 12px;
+      background: var(--color-accent-light);
+      border-left: 3px solid var(--color-accent);
+      font-size: 13px;
+      color: var(--color-text-secondary);
+    }
+
+    .hint strong { color: var(--color-text); }
+
+    .team {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .person {
+      background: var(--color-surface-muted);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: 12px 10px;
+      text-align: center;
+    }
+
+    .avatar {
+      width: 32px;
+      height: 32px;
+      margin: 0 auto 6px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 13px;
+      color: #fff;
+    }
+
+    .p1 .avatar { background: var(--color-navy); }
+    .p2 .avatar { background: var(--color-accent); }
+    .p3 .avatar { background: #4b5563; }
+    .p4 .avatar { background: #9ca3af; color: var(--color-text); }
+
+    .person .name { font-weight: 700; font-size: 13px; }
+    .person .role { font-size: 11px; color: var(--color-text-muted); margin-top: 2px; }
+
+    .matrix {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6px 10px;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .matrix .who { font-weight: 700; }
+    .arrow { color: var(--color-text-muted); }
+
+    .pipeline {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      margin-top: 14px;
+      font-size: 13px;
+    }
+
+    .pipe-box {
+      background: var(--color-surface-muted);
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-weight: 600;
+    }
+
+    .pipe-arr { color: var(--color-accent); font-weight: 700; }
+
+    code {
+      font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+      font-size: 0.85em;
+      background: var(--btn-bg);
+      border: 1px solid var(--btn-border);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    .foot-note {
+      margin-top: 24px;
+      font-size: 12px;
+      color: var(--color-text-muted);
+      text-align: center;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 900px) {
+      .app { flex-direction: column; }
+      .sidebar {
+        width: 100%;
+        position: static;
+        height: auto;
+      }
+      .sidebar__nav { display: none; }
+      .main { padding: 20px 16px 32px; }
+      .grid-2, .team { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 560px) {
+      .team, .grid-2 { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      .sidebar { display: none; }
+      .main { padding: 0; }
+      .corner-frame { break-inside: avoid; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="Навигация Аверс">
+      <div class="sidebar__brand">
+        <img src="assets/logos/logo-avers-icon.png" alt="" width="32" height="32" />
+        <span class="sidebar__brand-name">Аверс Технолоджи</span>
+      </div>
+      <nav class="sidebar__nav" aria-label="Разделы">
+        <div class="sidebar__label">План</div>
+        <a class="sidebar__link sidebar__link--active" href="#done" data-nav><span class="ico">✓</span> Уже сделано</a>
+        <a class="sidebar__link" href="#day-1-2" data-nav><span class="ico">1</span> День 1–2</a>
+        <a class="sidebar__link" href="#day-3-4" data-nav><span class="ico">2</span> День 3–4</a>
+        <a class="sidebar__link" href="#day-5" data-nav><span class="ico">3</span> День 5</a>
+      </nav>
+      <div class="sidebar__foot">
+        ООО «Аверс Технолоджи»<br />
+        Шпаргалка для команды · 4 чел.
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="page-header">
+        <div>
+          <h1>Старт совместной разработки в GitLab</h1>
+          <p class="page-header__sub">
+            4 человека, один учебный проект, один понятный цикл: ветка → MR → ревью → merge.
+          </p>
+        </div>
+        <div class="status-badges">
+          <span class="status-badge"><span class="status-dot"></span> Группа AVERS</span>
+          <span class="status-badge"><span class="status-dot"></span> Роли выданы</span>
+        </div>
+      </header>
+
+      <div class="section-title">
+        <span class="section-title__line"></span>
+        План на неделю
+      </div>
+
+      <div class="flow">
+
+        <section id="done" class="corner-frame corner-frame--accent" aria-labelledby="s0">
+          <span class="corner corner-tl"></span>
+          <span class="corner corner-tr"></span>
+          <span class="corner corner-bl"></span>
+          <span class="corner corner-br"></span>
+          <div class="step-head">
+            <div class="num">0</div>
+            <div>
+              <p class="when">Уже сделано</p>
+              <h2 id="s0">Люди в группе AVERS</h2>
+            </div>
+          </div>
+          <div class="team">
+            <div class="person p1">
+              <div class="avatar">1</div>
+              <div class="name">Участник A</div>
+              <div class="role">Maintainer<br />ведёт main</div>
+            </div>
+            <div class="person p2">
+              <div class="avatar">2</div>
+              <div class="name">Участник B</div>
+              <div class="role">Developer<br />код + MR</div>
+            </div>
+            <div class="person p3">
+              <div class="avatar">3</div>
+              <div class="name">Участник C</div>
+              <div class="role">Developer<br />код + MR</div>
+            </div>
+            <div class="person p4">
+              <div class="avatar">4</div>
+              <div class="name">Участник D</div>
+              <div class="role">Developer<br />код + MR</div>
+            </div>
+          </div>
+          <p class="hint">
+            Где смотреть: группа <span class="menu">AVERS</span> → <span class="menu">Участники</span>.
+            Роли уже выданы — дальше только практика.
+          </p>
+        </section>
+
+        <section id="day-1-2" class="corner-frame corner-frame--accent" aria-labelledby="s1">
+          <span class="corner corner-tl"></span>
+          <span class="corner corner-tr"></span>
+          <span class="corner corner-bl"></span>
+          <span class="corner corner-br"></span>
+          <div class="step-head">
+            <div class="num">1</div>
+            <div>
+              <p class="when">День 1–2</p>
+              <h2 id="s1">Sandbox-проект: создать и все клонируют</h2>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="block">
+              <h3>Создаёт Maintainer (A)</h3>
+              <ol class="actions">
+                <li data-n="1">Открыть группу <span class="menu">AVERS</span></li>
+                <li data-n="2">Нажать <span class="gbtn primary">+ Новый проект</span></li>
+                <li data-n="3">Выбрать <span class="gbtn ghost">Создать пустой проект</span></li>
+                <li data-n="4">Имя: <code>sandbox</code> → <span class="gbtn primary">Создать проект</span></li>
+                <li data-n="5">README лучше добавить позже (справа: <span class="gbtn ghost">Добавить README</span>)</li>
+              </ol>
+            </div>
+            <div class="block">
+              <h3>Клонируют все четверо</h3>
+              <ol class="actions">
+                <li data-n="1">Открыть проект (например <span class="menu">LearnProject</span>)</li>
+                <li data-n="2">Справа вверху кнопка <span class="gbtn">Код</span> ▼</li>
+                <li data-n="3">Вкладка <span class="gbtn ghost">HTTPS</span> или <span class="gbtn ghost">SSH</span> → скопировать URL</li>
+                <li data-n="4">В терминале: <code>git clone …</code></li>
+                <li data-n="5">Проверить: у всех есть папка проекта</li>
+              </ol>
+              <p class="hint" style="margin-top: 10px;">
+                На пустом проекте URL также уже показан ниже на странице (блоки SSH / HTTPS).
+                Кнопки «Новый файл», «Добавить README» — в правой колонке.
+              </p>
+            </div>
+          </div>
+          <p class="hint">
+            <strong>Правило:</strong> в <code>main</code> напрямую не пушим. Только через Merge Request.
+          </p>
+        </section>
+
+        <section id="day-3-4" class="corner-frame corner-frame--accent" aria-labelledby="s2">
+          <span class="corner corner-tl"></span>
+          <span class="corner corner-tr"></span>
+          <span class="corner corner-bl"></span>
+          <span class="corner corner-br"></span>
+          <div class="step-head">
+            <div class="num">2</div>
+            <div>
+              <p class="when">День 3–4</p>
+              <h2 id="s2">Каждый делает 1 MR — друг друга ревьюите</h2>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="block">
+              <h3>Автор MR (каждый из 4)</h3>
+              <ol class="actions">
+                <li data-n="1">Ветка: <code>git checkout -b feature/имя</code></li>
+                <li data-n="2">Правки → <code>git commit</code> → <code>git push</code></li>
+                <li data-n="3">В GitLab: <span class="gbtn primary">Создать merge request</span></li>
+                <li data-n="4">Или: <span class="menu">Merge requests</span> → <span class="gbtn primary">New merge request</span></li>
+                <li data-n="5">Заголовок + описание → <span class="gbtn primary">Create merge request</span></li>
+              </ol>
+            </div>
+            <div class="block">
+              <h3>Кто кого ревьюит (по кругу)</h3>
+              <div class="matrix">
+                <span class="who">A</span>
+                <span><span class="arrow">→ ревьюит MR от</span> B</span>
+                <span class="who">B</span>
+                <span><span class="arrow">→ ревьюит MR от</span> C</span>
+                <span class="who">C</span>
+                <span><span class="arrow">→ ревьюит MR от</span> D</span>
+                <span class="who">D</span>
+                <span><span class="arrow">→ ревьюит MR от</span> A</span>
+              </div>
+              <ul class="actions" style="margin-top: 12px;">
+                <li>Открыть чужой MR → комментарии в коде</li>
+                <li>Готово: <span class="gbtn success">Approve</span> / «Одобрить»</li>
+                <li>Maintainer: <span class="gbtn success">Merge</span> / «Слить»</li>
+              </ul>
+            </div>
+          </div>
+          <p class="hint">
+            Идея дня: <strong>пройти полный круг</strong> — push, MR, комментарий, approve, merge.
+            Тема может быть простой: файл <code>notes/ваше-имя.md</code>.
+          </p>
+        </section>
+
+        <section id="day-5" class="corner-frame corner-frame--accent" aria-labelledby="s3">
+          <span class="corner corner-tl"></span>
+          <span class="corner corner-tr"></span>
+          <span class="corner corner-bl"></span>
+          <span class="corner corner-br"></span>
+          <div class="step-head">
+            <div class="num">3</div>
+            <div>
+              <p class="when">День 5</p>
+              <h2 id="s3">Issues → закрыть через MR</h2>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="block">
+              <h3>Завести 3–5 задач</h3>
+              <ol class="actions">
+                <li data-n="1"><span class="menu">Issues</span> → <span class="gbtn primary">New issue</span></li>
+                <li data-n="2">Заголовок + описание → <span class="gbtn primary">Create issue</span></li>
+                <li data-n="3">Назначить: поле <span class="gbtn ghost">Assignee</span></li>
+                <li data-n="4">Примеры: «.gitignore», «README», «правила команды»</li>
+              </ol>
+            </div>
+            <div class="block">
+              <h3>Закрыть задачу через MR</h3>
+              <ol class="actions">
+                <li data-n="1">Ветка под задачу → коммит → push</li>
+                <li data-n="2"><span class="gbtn primary">Create merge request</span></li>
+                <li data-n="3">В описании MR: <code>Closes #12</code></li>
+                <li data-n="4">Ревью → <span class="gbtn success">Merge</span></li>
+                <li data-n="5">Issue закроется сама</li>
+              </ol>
+            </div>
+          </div>
+          <div class="pipeline">
+            <span class="pipe-box">Issue #12</span>
+            <span class="pipe-arr">→</span>
+            <span class="pipe-box">ветка</span>
+            <span class="pipe-arr">→</span>
+            <span class="pipe-box">MR + <code>Closes #12</code></span>
+            <span class="pipe-arr">→</span>
+            <span class="pipe-box">Merge</span>
+            <span class="pipe-arr">→</span>
+            <span class="pipe-box">Issue закрыта ✓</span>
+          </div>
+          <p class="hint">
+            После цикла — можно заводить <strong>боевой проект</strong> в группе AVERS (не sandbox).
+          </p>
+        </section>
+      </div>
+
+      <p class="foot-note">ООО «Аверс Технолоджи»</p>
+    </main>
+  </div>
+  <script>
+    (function () {
+      var links = Array.prototype.slice.call(document.querySelectorAll("[data-nav]"));
+      var sections = links.map(function (a) {
+        return document.querySelector(a.getAttribute("href"));
+      }).filter(Boolean);
+
+      function setActive(id) {
+        links.forEach(function (a) {
+          a.classList.toggle("sidebar__link--active", a.getAttribute("href") === "#" + id);
+        });
+      }
+
+      links.forEach(function (a) {
+        a.addEventListener("click", function () {
+          var id = (a.getAttribute("href") || "").replace("#", "");
+          if (id) setActive(id);
+        });
+      });
+
+      if (!("IntersectionObserver" in window) || !sections.length) return;
+
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) setActive(entry.target.id);
+        });
+      }, { rootMargin: "-20% 0px -65% 0px", threshold: 0 });
+
+      sections.forEach(function (sec) { observer.observe(sec); });
+    })();
+  </script>
+</body>
+</html>
