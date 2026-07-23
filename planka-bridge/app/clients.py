@@ -58,28 +58,37 @@ class PlankaClient:
             r.raise_for_status()
             return r.json().get("items") or []
 
-    async def get_card_member_users(self, card_id: str) -> list[dict]:
-        """Users assigned to the card (card memberships)."""
-        data = await self.get_card(card_id)
-        inc = data.get("included") or {}
-        memberships = inc.get("cardMemberships") or []
-        users_by_id = {str(u["id"]): u for u in (inc.get("users") or []) if u.get("id")}
-
-        # included.users on card GET is often incomplete — load full user directory
-        missing = [
-            str(m.get("userId"))
-            for m in memberships
-            if str(m.get("userId")) not in users_by_id
-        ]
-        if missing:
-            for u in await self.get_users():
-                users_by_id[str(u["id"])] = u
-
-        out: list[dict] = []
-        for m in memberships:
-            uid = str(m.get("userId") or "")
-            if uid in users_by_id:
-                out.append(users_by_id[uid])
+    async def get_card_comments(self, card_id: str) -> list[dict]:
+        """Return comments with author fields attached when possible."""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = await self._headers(client)
+            r = await client.get(
+                f"{self.base}/api/cards/{card_id}/comments",
+                headers=headers,
+            )
+            if r.status_code == 401:
+                self._token = None
+                headers = await self._headers(client)
+                r = await client.get(
+                    f"{self.base}/api/cards/{card_id}/comments",
+                    headers=headers,
+                )
+            r.raise_for_status()
+            data = r.json()
+        users = {
+            str(u["id"]): u
+            for u in ((data.get("included") or {}).get("users") or [])
+            if u.get("id")
+        }
+        out = []
+        for item in data.get("items") or []:
+            row = dict(item)
+            uid = str(item.get("userId") or "")
+            if uid in users:
+                row["_author"] = users[uid]
+            out.append(row)
+        # oldest first for natural GitLab order
+        out.sort(key=lambda x: x.get("createdAt") or "")
         return out
 
     async def get_board(self, board_id: str) -> dict:

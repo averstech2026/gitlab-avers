@@ -225,18 +225,24 @@ async def planka_hook(
         planka, gitlab, card_id=card_id, issue_iid=issue_iid
     )
 
+    backfilled = await comments.backfill_planka_comments_to_gitlab(
+        planka, gitlab, card_id=card_id, issue_iid=issue_iid
+    )
+
     await planka.add_comment(card_id, f"Создана задача в GitLab: {issue_url}")
     log.info(
-        "created gitlab issue !%s for card %s assignees=%s",
+        "created gitlab issue !%s for card %s assignees=%s backfilled_comments=%s",
         issue_iid,
         card_id,
         ids,
+        backfilled,
     )
     return {
         "ok": True,
         "issue_iid": issue_iid,
         "issue_url": issue_url,
         "assignee_ids": ids,
+        "backfilled_comments": backfilled,
     }
 
 
@@ -287,6 +293,10 @@ async def _planka_comment_create(payload: dict[str, Any]) -> dict:
 
     link = store.get_by_card(card_id)
     if not link:
+        log.info(
+            "skip planka comment on card %s — no gitlab link yet (will backfill on issue create)",
+            card_id,
+        )
         return {"ignored": True, "reason": "no-link"}
 
     user = payload.get("user") or {}

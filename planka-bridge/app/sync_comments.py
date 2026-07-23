@@ -55,3 +55,31 @@ def should_mirror_outbound(text: str | None) -> bool:
     if is_system_bridge_message(text):
         return False
     return True
+
+
+async def backfill_planka_comments_to_gitlab(planka, gitlab, *, card_id: str, issue_iid: int) -> int:
+    """Push Planka comments written before the Issue link existed."""
+    import logging
+
+    log = logging.getLogger("bridge.comments")
+    existing = await planka.get_card_comments(card_id)
+    mirrored = 0
+    for c in existing:
+        text = c.get("text") or ""
+        if not should_mirror_outbound(text):
+            continue
+        author_obj = c.get("_author") or {}
+        author = (
+            author_obj.get("name")
+            or author_obj.get("username")
+            or "Planka"
+        )
+        body = wrap_from_planka(str(author), text)
+        await gitlab.create_note(int(issue_iid), body)
+        mirrored += 1
+        log.info(
+            "backfilled planka comment %s → gitlab !%s",
+            c.get("id"),
+            issue_iid,
+        )
+    return mirrored
