@@ -13,6 +13,8 @@ services:
         nginx['real_ip_header'] = 'X-Forwarded-For'
         nginx['real_ip_recursive'] = 'on'
         gitlab_rails['gitlab_shell_ssh_port'] = 2222
+        gitlab_rails['allow_local_requests_from_web_hooks_and_services'] = true
+        gitlab_rails['allow_local_requests_from_system_hooks'] = true
     ports:
       - '8080:80'
       - '2222:22'
@@ -38,6 +40,24 @@ services:
     networks:
       - default
       - planka_net
+
+  # Planka → GitLab Issues → обратно в колонку Planka
+  planka-bridge:
+    build: ./planka-bridge
+    container_name: planka-bridge
+    restart: unless-stopped
+    env_file: ./planka-bridge/.env
+    volumes:
+      - planka-bridge-data:/data
+    networks:
+      - default
+      - planka_net
+    # Порт наружу не нужен: webhooks идут по docker DNS
+    # planka → http://planka-bridge:8080/hooks/planka
+    # gitlab → http://planka-bridge:8080/hooks/gitlab
+
+volumes:
+  planka-bridge-data:
 
 networks:
   planka_net:
