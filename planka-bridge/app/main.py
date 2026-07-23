@@ -12,6 +12,7 @@ from .clients import GitLabClient, PlankaClient
 from .settings import settings
 from .store import Store
 from . import sync_comments as comments
+from . import assignees as assignee_sync
 
 log = logging.getLogger("bridge")
 logging.basicConfig(
@@ -102,6 +103,9 @@ async def planka_hook(
     if event == "commentCreate":
         return await _planka_comment_create(payload)
 
+    if event in ("cardMembershipCreate", "cardMembershipDelete", "cardMembershipUpdate"):
+        return await _planka_membership_change(payload)
+
     if event != "cardUpdate":
         return {"ignored": True, "reason": "event"}
 
@@ -148,16 +152,25 @@ async def planka_hook(
             if state == "closed":
                 reopened = await gitlab.reopen_issue(issue_iid)
                 issue_url = reopened.get("web_url") or issue_url
+                ids = await assignee_sync.sync_issue_assignees_from_card(
+                    planka, gitlab, card_id=card_id, issue_iid=issue_iid
+                )
                 await planka.add_comment(
                     card_id,
                     f"Issue в GitLab переоткрыт: {issue_url}",
                 )
-                log.info("reopened gitlab issue !%s for card %s", issue_iid, card_id)
+                log.info(
+                    "reopened gitlab issue !%s for card %s assignees=%s",
+                    issue_iid,
+                    card_id,
+                    ids,
+                )
                 return {
                     "ok": True,
                     "reopened": True,
                     "issue_iid": issue_iid,
                     "issue_url": issue_url,
+                    "assignee_ids": ids,
                 }
             log.info(
                 "card %s already linked to open issue !%s",
@@ -208,9 +221,51 @@ async def planka_hook(
         board_name=ctx.get("board_name"),
     )
 
+    ids = await assignee_sync.sync_issue_assignees_from_card(
+        planka, gitlab, card_id=card_id, issue_iid=issue_iid
+    )
+
     await planka.add_comment(card_id, f"Создана задача в GitLab: {issue_url}")
-    log.info("created gitlab issue !%s for card %s", issue_iid, card_id)
-    return {"ok": True, "issue_iid": issue_iid, "issue_url": issue_url}
+    log.info(
+        "created gitlab issue !%s for card %s assignees=%s",
+        issue_iid,
+        card_id,
+        ids,
+    )
+    return {
+        "ok": True,
+        "issue_iid": issue_iid,
+        "issue_url": issue_url,
+        "assignee_ids": ids,
+    }
+
+
+async def _planka_membership_change(payload: dict[str, Any]) -> dict:
+    data = payload.get("data") or {}
+    item = data.get("item") or {}
+    card_id = str(item.get("cardId") or "")
+    if not card_id:
+        # sometimes deleted membership still has cardId; or look in prevData
+        prev = (payload.get("prevData") or {}).get("item") or {}
+        card_id = str(prev.get("cardId") or "")
+    if not card_id:
+        return {"ignored": True, "reason": "no-card-id"}
+
+    link = store.get_by_card(card_id)
+    if not link:
+        return {"ignored": True, "reason": "no-link"}
+
+    issue_iid = int(link["issue_iid"])
+    ids = await assignee_sync.sync_issue_assignees_from_card(
+        planka, gitlab, card_id=card_id, issue_iid=issue_iid
+    )
+    log.info(
+        "synced assignees for card %s → issue !%s ids=%s",
+        card_id,
+        issue_iid,
+        ids,
+    )
+    return {"ok": True, "issue_iid": issue_iid, "assignee_ids": ids}
 
 
 async def _planka_comment_create(payload: dict[str, Any]) -> dict:

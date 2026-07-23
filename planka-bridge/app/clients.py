@@ -47,6 +47,41 @@ class PlankaClient:
             r.raise_for_status()
             return r.json()
 
+    async def get_users(self) -> list[dict]:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = await self._headers(client)
+            r = await client.get(f"{self.base}/api/users", headers=headers)
+            if r.status_code == 401:
+                self._token = None
+                headers = await self._headers(client)
+                r = await client.get(f"{self.base}/api/users", headers=headers)
+            r.raise_for_status()
+            return r.json().get("items") or []
+
+    async def get_card_member_users(self, card_id: str) -> list[dict]:
+        """Users assigned to the card (card memberships)."""
+        data = await self.get_card(card_id)
+        inc = data.get("included") or {}
+        memberships = inc.get("cardMemberships") or []
+        users_by_id = {str(u["id"]): u for u in (inc.get("users") or []) if u.get("id")}
+
+        # included.users on card GET is often incomplete — load full user directory
+        missing = [
+            str(m.get("userId"))
+            for m in memberships
+            if str(m.get("userId")) not in users_by_id
+        ]
+        if missing:
+            for u in await self.get_users():
+                users_by_id[str(u["id"])] = u
+
+        out: list[dict] = []
+        for m in memberships:
+            uid = str(m.get("userId") or "")
+            if uid in users_by_id:
+                out.append(users_by_id[uid])
+        return out
+
     async def get_board(self, board_id: str) -> dict:
         if board_id in self._board_cache:
             return self._board_cache[board_id]
@@ -240,6 +275,37 @@ class GitLabClient:
                 f"{self.base}/api/v4/projects/{project_id}/issues/{int(issue_iid)}/notes",
                 headers=self._headers(),
                 json={"body": body},
+            )
+            r.raise_for_status()
+            return r.json()
+
+    async def list_users(self) -> list[dict]:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            users: list[dict] = []
+            page = 1
+            while True:
+                r = await client.get(
+                    f"{self.base}/api/v4/users",
+                    headers=self._headers(),
+                    params={"per_page": 100, "page": page, "active": "true"},
+                )
+                r.raise_for_status()
+                batch = r.json()
+                if not batch:
+                    break
+                users.extend(batch)
+                if len(batch) < 100:
+                    break
+                page += 1
+            return users
+
+    async def set_issue_assignees(self, issue_iid: int, assignee_ids: list[int]) -> dict:
+        project_id = await self.resolve_project_id()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.put(
+                f"{self.base}/api/v4/projects/{project_id}/issues/{int(issue_iid)}",
+                headers=self._headers(),
+                json={"assignee_ids": assignee_ids},
             )
             r.raise_for_status()
             return r.json()

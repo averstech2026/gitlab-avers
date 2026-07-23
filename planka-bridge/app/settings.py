@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     gitlab_project_path: str = "avers/AVERS"
     gitlab_webhook_token: str = ""
 
+    # Optional JSON map: planka username/email/name → gitlab username
+    # e.g. {"ivan":"UBaHbI4"}
+    planka_gitlab_user_map: str = ""
+
     database_path: str = "/data/bridge.db"
 
     @property
