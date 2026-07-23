@@ -17,6 +17,7 @@ class PlankaClient:
         self._token: str | None = None
         self._list_cache: dict[str, dict] = {}
         self._board_cache: dict[str, dict] = {}
+        self._project_cache: dict[str, dict] = {}
 
     async def _ensure_token(self, client: httpx.AsyncClient) -> str:
         if self._token:
@@ -123,9 +124,52 @@ class PlankaClient:
     ) -> dict:
         board = await self.get_board(board_id)
         labels = (board.get("included") or {}).get("labels") or []
+        want = name.strip()
         for lab in labels:
-            if (lab.get("name") or "").strip() == name.strip():
+            if (lab.get("name") or "").strip() == want:
                 return lab
+
+        # Migrate legacy pr:Front → git:Front (one-time rename on board)
+        legacy = None
+        if want.startswith("git:"):
+            legacy_name = "pr:" + want[len("git:") :]
+            for lab in labels:
+                if (lab.get("name") or "").strip() == legacy_name:
+                    legacy = lab
+                    break
+        if legacy:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                headers = await self._headers(client)
+                r = await client.patch(
+                    f"{self.base}/api/labels/{legacy['id']}",
+                    headers=headers,
+                    json={"name": want},
+                )
+                if r.status_code == 401:
+                    self._token = None
+                    headers = await self._headers(client)
+                    r = await client.patch(
+                        f"{self.base}/api/labels/{legacy['id']}",
+                        headers=headers,
+                        json={"name": want},
+                    )
+                if r.status_code < 400:
+                    self.invalidate_board(board_id)
+                    item = r.json().get("item") or {**legacy, "name": want}
+                    log.info(
+                        "renamed board label %r → %r on board %s",
+                        legacy.get("name"),
+                        want,
+                        board_id,
+                    )
+                    return item
+                log.warning(
+                    "could not rename label %s: %s %s",
+                    legacy.get("id"),
+                    r.status_code,
+                    r.text[:200],
+                )
+
         # create
         position = 65535
         if labels:
@@ -135,7 +179,7 @@ class PlankaClient:
             r = await client.post(
                 f"{self.base}/api/boards/{board_id}/labels",
                 headers=headers,
-                json={"name": name, "position": position, "color": color},
+                json={"name": want, "position": position, "color": color},
             )
             if r.status_code == 401:
                 self._token = None
@@ -143,7 +187,7 @@ class PlankaClient:
                 r = await client.post(
                     f"{self.base}/api/boards/{board_id}/labels",
                     headers=headers,
-                    json={"name": name, "position": position, "color": color},
+                    json={"name": want, "position": position, "color": color},
                 )
             r.raise_for_status()
             item = r.json()["item"]
@@ -170,11 +214,18 @@ class PlankaClient:
             if r.status_code in (409,):
                 return
             if r.status_code >= 400:
-                # Planka may return 409-like in body
                 body = r.text.lower()
-                if "already" in body or r.status_code == 409:
+                if "already" in body or "unique" in body:
                     return
+                log.error(
+                    "add_card_label failed card=%s label=%s status=%s body=%s",
+                    card_id,
+                    label_id,
+                    r.status_code,
+                    r.text[:300],
+                )
                 r.raise_for_status()
+            log.info("card-label ok card=%s label=%s", card_id, label_id)
 
     async def get_board(self, board_id: str) -> dict:
         if board_id in self._board_cache:
@@ -192,7 +243,29 @@ class PlankaClient:
             for lst in (data.get("included") or {}).get("lists") or []:
                 if lst.get("id"):
                     self._list_cache[str(lst["id"])] = lst
+            for proj in (data.get("included") or {}).get("projects") or []:
+                if proj.get("id"):
+                    self._project_cache[str(proj["id"])] = proj
             return data
+
+    async def get_project(self, project_id: str) -> dict:
+        """Return project item dict (cached)."""
+        pid = str(project_id)
+        if pid in self._project_cache:
+            return self._project_cache[pid]
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = await self._headers(client)
+            r = await client.get(f"{self.base}/api/projects/{pid}", headers=headers)
+            if r.status_code == 401:
+                self._token = None
+                headers = await self._headers(client)
+                r = await client.get(f"{self.base}/api/projects/{pid}", headers=headers)
+            r.raise_for_status()
+            data = r.json()
+            item = data.get("item") or {}
+            if item.get("id"):
+                self._project_cache[str(item["id"])] = item
+            return item
 
     async def get_list(self, list_id: str, board_id: str | None = None) -> dict | None:
         lid = str(list_id)

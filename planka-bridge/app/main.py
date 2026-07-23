@@ -66,13 +66,22 @@ def _extract_comment(data: Optional[dict]) -> Optional[dict]:
     return item if isinstance(item, dict) else None
 
 
-def _is_issue_close(attrs: dict) -> bool:
+def _is_issue_close(attrs: dict, changes: dict | None = None) -> bool:
+    """True only when the Issue is being closed — not on ordinary updates.
+
+    Do NOT treat ``state == closed`` alone as a close: GitLab sends current
+    state on every update, so that falsely moved cards when linking an MR.
+    """
     action = (attrs.get("action") or "").lower()
-    state = (attrs.get("state") or "").lower()
     if action in ("close", "closed"):
         return True
-    if state == "closed" and action in ("update", "close", "closed", ""):
-        return True
+    # Some payloads use action=update with an explicit state transition
+    state_change = (changes or {}).get("state")
+    if isinstance(state_change, dict):
+        prev = (state_change.get("previous") or "").lower()
+        curr = (state_change.get("current") or "").lower()
+        if curr in ("closed", "close") and prev not in ("closed", "close"):
+            return True
     return False
 
 
@@ -82,6 +91,45 @@ def _resolve_card_id_for_issue(issue_iid: int, description: str = "") -> Optiona
         return link["card_id"]
     m = CARD_MARKER_RE.search(description or "")
     return m.group(1) if m else None
+
+
+async def _skip_reason_for_board(board_id: str) -> Optional[str]:
+    """Why this Planka board must not create GitLab Issues, or None to sync.
+
+    Private projects (Planka «Мои» / My Own) have ownerProjectManagerId set.
+    Shared/team projects have it null — those still sync.
+    """
+    if not board_id:
+        return None
+    if board_id in settings.skip_board_ids:
+        return "skip-board-id"
+
+    try:
+        board_data = await planka.get_board(board_id)
+    except httpx.HTTPStatusError as exc:
+        # Private projects are often invisible to the bridge account (admin).
+        if settings.planka_skip_private_projects and exc.response.status_code in (403, 404):
+            return "inaccessible-private"
+        raise
+
+    project_id = str((board_data.get("item") or {}).get("projectId") or "")
+    if project_id and project_id in settings.skip_project_ids:
+        return "skip-project-id"
+
+    if not settings.planka_skip_private_projects or not project_id:
+        return None
+
+    try:
+        project = await planka.get_project(project_id)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (403, 404):
+            return "inaccessible-private"
+        raise
+
+    # Planka: private ⇔ ownerProjectManagerId is set; shared ⇔ null
+    if project.get("ownerProjectManagerId"):
+        return "private-project"
+    return None
 
 
 @app.get("/health")
@@ -107,6 +155,13 @@ async def planka_hook(
     if event in ("cardMembershipCreate", "cardMembershipDelete", "cardMembershipUpdate"):
         return await _planka_membership_change(payload)
 
+    if event == "cardCreate":
+        card = _extract_card(payload.get("data"))
+        if not card:
+            return {"ignored": True, "reason": "no-card"}
+        # Card created already in the Git queue column
+        return await _handle_ready_queue_card(card, prev=None, require_list_change=False)
+
     if event != "cardUpdate":
         return {"ignored": True, "reason": "event"}
 
@@ -114,13 +169,37 @@ async def planka_hook(
     prev = _extract_card(payload.get("prevData"))
     if not card:
         return {"ignored": True, "reason": "no-card"}
+    return await _handle_ready_queue_card(card, prev=prev, require_list_change=True)
 
+
+async def _handle_ready_queue_card(
+    card: dict,
+    *,
+    prev: Optional[dict],
+    require_list_change: bool,
+) -> dict:
     new_list = str(card.get("listId") or "")
     old_list = str((prev or {}).get("listId") or "")
-    if not new_list or new_list == old_list:
+    if not new_list:
+        return {"ignored": True, "reason": "no-list"}
+    if require_list_change and new_list == old_list:
         return {"ignored": True, "reason": "list-unchanged"}
 
     board_id = str(card.get("boardId") or (prev or {}).get("boardId") or "")
+    skip_reason = await _skip_reason_for_board(board_id)
+    if skip_reason:
+        log.info(
+            "skip card %s — board %s (%s)",
+            card.get("id"),
+            board_id,
+            skip_reason,
+        )
+        return {
+            "ignored": True,
+            "reason": skip_reason,
+            "board_id": board_id,
+        }
+
     lst = await planka.get_list(new_list, board_id or None)
     if not lst and board_id:
         planka.invalidate_board(board_id)
@@ -464,10 +543,14 @@ async def _gitlab_merge_request(payload: dict[str, Any]) -> dict:
 
 async def _gitlab_issue_event(payload: dict[str, Any]) -> dict:
     attrs = payload.get("object_attributes") or {}
+    changes = payload.get("changes") or {}
     action = (attrs.get("action") or "").lower()
 
-    # On update — refresh labels from related MRs
-    if action == "update" and not _is_issue_close(attrs):
+    if _is_issue_close(attrs, changes):
+        return await _gitlab_issue_close(payload)
+
+    # On update — sync labels from Issue labels (primary) + related MRs
+    if action == "update":
         issue_iid = attrs.get("iid")
         if not issue_iid:
             return {"ignored": True, "reason": "no-iid"}
@@ -477,21 +560,41 @@ async def _gitlab_issue_event(payload: dict[str, Any]) -> dict:
         )
         if not card_id:
             return {"ignored": True, "reason": "no-link"}
-        labels = await proj_labels.sync_labels_from_related_mrs(
+
+        from_issue = await proj_labels.sync_labels_from_gitlab_issue_labels(
+            planka,
+            store,
+            card_id=card_id,
+            gitlab_label_titles=proj_labels.extract_issue_label_titles(payload),
+        )
+        from_mrs = await proj_labels.sync_labels_from_related_mrs(
             planka,
             gitlab,
             store,
             card_id=card_id,
             issue_iid=int(issue_iid),
         )
-        return {"ok": True, "labels": labels, "from": "issue-update"}
+        labels = list(dict.fromkeys([*from_issue, *from_mrs]))
+        return {
+            "ok": True,
+            "labels": labels,
+            "from_issue_labels": from_issue,
+            "from_mrs": from_mrs,
+            "from": "issue-update",
+        }
 
-    return await _gitlab_issue_close(payload)
+    return {
+        "ignored": True,
+        "reason": "not-close-or-update",
+        "action": action,
+        "state": attrs.get("state"),
+    }
 
 
 async def _gitlab_issue_close(payload: dict[str, Any]) -> dict:
     attrs = payload.get("object_attributes") or {}
-    if not _is_issue_close(attrs):
+    changes = payload.get("changes") or {}
+    if not _is_issue_close(attrs, changes):
         return {
             "ignored": True,
             "reason": "not-close",
@@ -564,6 +667,17 @@ async def _gitlab_issue_close(payload: dict[str, Any]) -> dict:
         card_id,
         f"Issue в GitLab закрыт (!{issue_iid}) → колонка «{nxt.get('name')}»",
     )
+    # Re-apply project labels after move (avoids race with parallel MR/update hooks)
+    try:
+        await proj_labels.sync_labels_from_related_mrs(
+            planka,
+            gitlab,
+            store,
+            card_id=card_id,
+            issue_iid=int(issue_iid),
+        )
+    except Exception:
+        log.exception("re-apply labels after close move failed for card %s", card_id)
     log.info(
         "moved card %s → %s after issue !%s closed",
         card_id,
