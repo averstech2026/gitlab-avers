@@ -13,6 +13,7 @@ from .settings import settings
 from .store import Store
 from . import sync_comments as comments
 from . import assignees as assignee_sync
+from . import project_labels as proj_labels
 
 log = logging.getLogger("bridge")
 logging.basicConfig(
@@ -338,10 +339,13 @@ async def gitlab_hook(
     if object_kind in ("note", "emoji") or "note" in event_header:
         return await _gitlab_note(payload)
 
+    if object_kind == "merge_request" or "merge request" in event_header:
+        return await _gitlab_merge_request(payload)
+
     if object_kind != "issue" and "issue" not in event_header:
         return {"ignored": True, "reason": "not-issue"}
 
-    return await _gitlab_issue_close(payload)
+    return await _gitlab_issue_event(payload)
 
 
 async def _gitlab_note(payload: dict[str, Any]) -> dict:
@@ -350,20 +354,50 @@ async def _gitlab_note(payload: dict[str, Any]) -> dict:
     if noteable and noteable not in ("issue", "workitem", "work_item"):
         return {"ignored": True, "reason": "not-issue-note", "noteable": noteable}
 
-    # only new comments
     action = (attrs.get("action") or "create").lower()
     if action not in ("create", ""):
         return {"ignored": True, "reason": "not-create", "action": action}
 
-    if attrs.get("system"):
-        return {"ignored": True, "reason": "system-note"}
-
     text = attrs.get("note") or attrs.get("body") or ""
+    issue = payload.get("issue") or payload.get("work_item") or {}
+    issue_iid = issue.get("iid") or attrs.get("noteable_iid")
+
+    # System note about related MR → Planka project label
+    if attrs.get("system"):
+        if not issue_iid:
+            return {"ignored": True, "reason": "system-no-iid"}
+        paths = proj_labels.extract_project_paths_from_note(text)
+        if not paths:
+            return {"ignored": True, "reason": "system-note"}
+        card_id = _resolve_card_id_for_issue(
+            int(issue_iid),
+            issue.get("description") or "",
+        )
+        if not card_id:
+            return {"ignored": True, "reason": "no-link"}
+        applied = []
+        for path in paths:
+            name = ""
+            try:
+                p = await gitlab.get_project(path)
+                path = p.get("path_with_namespace") or path
+                name = p.get("name") or ""
+            except Exception:
+                log.exception("project resolve failed for %s", path)
+            label = await proj_labels.apply_project_label_to_card(
+                planka,
+                store,
+                card_id=card_id,
+                project_path=path,
+                project_name=name,
+            )
+            if label:
+                applied.append(label)
+        return {"ok": True, "labels": applied, "from": "system-note"}
+
     if not comments.should_mirror_outbound(text):
         return {"ignored": True, "reason": "bridged-or-system"}
 
-    issue = payload.get("issue") or payload.get("work_item") or {}
-    issue_iid = issue.get("iid") or attrs.get("noteable_iid")
     if not issue_iid:
         return {"ignored": True, "reason": "no-iid"}
 
@@ -386,6 +420,73 @@ async def _gitlab_note(payload: dict[str, Any]) -> dict:
         "card_id": card_id,
         "issue_iid": issue_iid,
     }
+
+
+async def _gitlab_merge_request(payload: dict[str, Any]) -> dict:
+    """MR in a code repo that references avers/AVERS#N → label on Planka card."""
+    attrs = payload.get("object_attributes") or {}
+    action = (attrs.get("action") or "").lower()
+    if action not in ("open", "reopen", "update", "merge"):
+        return {"ignored": True, "reason": "mr-action", "action": action}
+
+    description = attrs.get("description") or ""
+    title = attrs.get("title") or ""
+    blob = f"{title}\n{description}"
+    # Find avers/AVERS#123 or #123 if project is queue (rare)
+    m = re.search(r"avers/AVERS#(\d+)", blob, re.I)
+    if not m:
+        m = re.search(r"\bAVERS#(\d+)\b", blob, re.I)
+    if not m:
+        return {"ignored": True, "reason": "no-avers-issue-ref"}
+
+    issue_iid = int(m.group(1))
+    card_id = _resolve_card_id_for_issue(issue_iid, "")
+    if not card_id:
+        return {"ignored": True, "reason": "no-link"}
+
+    path = ""
+    name = ""
+    proj = payload.get("project") or {}
+    path = proj.get("path_with_namespace") or ""
+    name = proj.get("name") or ""
+    if not path:
+        return {"ignored": True, "reason": "no-project"}
+
+    label = await proj_labels.apply_project_label_to_card(
+        planka,
+        store,
+        card_id=card_id,
+        project_path=path,
+        project_name=name,
+    )
+    return {"ok": True, "label": label, "issue_iid": issue_iid, "from": "merge_request"}
+
+
+async def _gitlab_issue_event(payload: dict[str, Any]) -> dict:
+    attrs = payload.get("object_attributes") or {}
+    action = (attrs.get("action") or "").lower()
+
+    # On update — refresh labels from related MRs
+    if action == "update" and not _is_issue_close(attrs):
+        issue_iid = attrs.get("iid")
+        if not issue_iid:
+            return {"ignored": True, "reason": "no-iid"}
+        card_id = _resolve_card_id_for_issue(
+            int(issue_iid),
+            attrs.get("description") or "",
+        )
+        if not card_id:
+            return {"ignored": True, "reason": "no-link"}
+        labels = await proj_labels.sync_labels_from_related_mrs(
+            planka,
+            gitlab,
+            store,
+            card_id=card_id,
+            issue_iid=int(issue_iid),
+        )
+        return {"ok": True, "labels": labels, "from": "issue-update"}
+
+    return await _gitlab_issue_close(payload)
 
 
 async def _gitlab_issue_close(payload: dict[str, Any]) -> dict:

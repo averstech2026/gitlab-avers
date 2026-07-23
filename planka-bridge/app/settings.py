@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # e.g. {"ivan":"UBaHbI4"}
     planka_gitlab_user_map: str = ""
 
+    # Optional JSON: gitlab path → planka label, e.g. {"avers/front":"pr:Front"}
+    # If empty, auto: avers/front → pr:Front (from project name)
+    gitlab_project_label_map: str = ""
+
     database_path: str = "/data/bridge.db"
 
     @property

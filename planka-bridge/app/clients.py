@@ -91,6 +91,91 @@ class PlankaClient:
         out.sort(key=lambda x: x.get("createdAt") or "")
         return out
 
+    async def get_card_member_users(self, card_id: str) -> list[dict]:
+        """Users assigned to the card (card memberships)."""
+        data = await self.get_card(card_id)
+        inc = data.get("included") or {}
+        memberships = inc.get("cardMemberships") or []
+        users_by_id = {str(u["id"]): u for u in (inc.get("users") or []) if u.get("id")}
+
+        missing = [
+            str(m.get("userId"))
+            for m in memberships
+            if str(m.get("userId")) not in users_by_id
+        ]
+        if missing:
+            for u in await self.get_users():
+                users_by_id[str(u["id"])] = u
+
+        out: list[dict] = []
+        for m in memberships:
+            uid = str(m.get("userId") or "")
+            if uid in users_by_id:
+                out.append(users_by_id[uid])
+        return out
+
+    async def ensure_board_label(
+        self,
+        board_id: str,
+        *,
+        name: str,
+        color: str = "berry-red",
+    ) -> dict:
+        board = await self.get_board(board_id)
+        labels = (board.get("included") or {}).get("labels") or []
+        for lab in labels:
+            if (lab.get("name") or "").strip() == name.strip():
+                return lab
+        # create
+        position = 65535
+        if labels:
+            position = max((l.get("position") or 0) for l in labels) + 65535
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = await self._headers(client)
+            r = await client.post(
+                f"{self.base}/api/boards/{board_id}/labels",
+                headers=headers,
+                json={"name": name, "position": position, "color": color},
+            )
+            if r.status_code == 401:
+                self._token = None
+                headers = await self._headers(client)
+                r = await client.post(
+                    f"{self.base}/api/boards/{board_id}/labels",
+                    headers=headers,
+                    json={"name": name, "position": position, "color": color},
+                )
+            r.raise_for_status()
+            item = r.json()["item"]
+            self.invalidate_board(board_id)
+            return item
+
+    async def add_card_label(self, card_id: str, label_id: str) -> None:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = await self._headers(client)
+            r = await client.post(
+                f"{self.base}/api/cards/{card_id}/card-labels",
+                headers=headers,
+                json={"labelId": str(label_id)},
+            )
+            if r.status_code == 401:
+                self._token = None
+                headers = await self._headers(client)
+                r = await client.post(
+                    f"{self.base}/api/cards/{card_id}/card-labels",
+                    headers=headers,
+                    json={"labelId": str(label_id)},
+                )
+            # already on card
+            if r.status_code in (409,):
+                return
+            if r.status_code >= 400:
+                # Planka may return 409-like in body
+                body = r.text.lower()
+                if "already" in body or r.status_code == 409:
+                    return
+                r.raise_for_status()
+
     async def get_board(self, board_id: str) -> dict:
         if board_id in self._board_cache:
             return self._board_cache[board_id]
@@ -318,3 +403,26 @@ class GitLabClient:
             )
             r.raise_for_status()
             return r.json()
+
+    async def get_project(self, project_id_or_path: str) -> dict:
+        encoded = quote(str(project_id_or_path).strip("/"), safe="")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.get(
+                f"{self.base}/api/v4/projects/{encoded}",
+                headers=self._headers(),
+            )
+            r.raise_for_status()
+            return r.json()
+
+    async def list_related_merge_requests(self, issue_iid: int) -> list[dict]:
+        project_id = await self.resolve_project_id()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.get(
+                f"{self.base}/api/v4/projects/{project_id}/issues/{int(issue_iid)}/related_merge_requests",
+                headers=self._headers(),
+            )
+            if r.status_code == 404:
+                return []
+            r.raise_for_status()
+            data = r.json()
+            return data if isinstance(data, list) else []
