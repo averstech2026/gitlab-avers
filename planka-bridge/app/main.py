@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from .clients import GitLabClient, PlankaClient
 from .settings import settings
 from .store import Store
+from . import sync_comments as comments
 
 log = logging.getLogger("bridge")
 logging.basicConfig(
@@ -18,7 +19,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 
-app = FastAPI(title="Planka ↔ GitLab bridge", version="1.0.0")
+app = FastAPI(title="Planka ↔ GitLab bridge", version="1.1.0")
 store = Store(settings.database_path)
 planka = PlankaClient()
 gitlab = GitLabClient()
@@ -51,6 +52,18 @@ def _extract_card(data: Optional[dict]) -> Optional[dict]:
     return item if isinstance(item, dict) else None
 
 
+def _extract_comment(data: Optional[dict]) -> Optional[dict]:
+    if not data:
+        return None
+    item = data.get("item")
+    if isinstance(item, dict) and (item.get("text") is not None or item.get("cardId")):
+        return item
+    comments_list = (data.get("included") or {}).get("comments") or []
+    if comments_list:
+        return comments_list[0]
+    return item if isinstance(item, dict) else None
+
+
 def _is_issue_close(attrs: dict) -> bool:
     action = (attrs.get("action") or "").lower()
     state = (attrs.get("state") or "").lower()
@@ -59,6 +72,14 @@ def _is_issue_close(attrs: dict) -> bool:
     if state == "closed" and action in ("update", "close", "closed", ""):
         return True
     return False
+
+
+def _resolve_card_id_for_issue(issue_iid: int, description: str = "") -> Optional[str]:
+    link = store.get_by_issue_iid(int(issue_iid))
+    if link:
+        return link["card_id"]
+    m = CARD_MARKER_RE.search(description or "")
+    return m.group(1) if m else None
 
 
 @app.get("/health")
@@ -77,6 +98,9 @@ async def planka_hook(
     payload: dict[str, Any] = await request.json()
     event = payload.get("event")
     log.info("planka event=%s", event)
+
+    if event == "commentCreate":
+        return await _planka_comment_create(payload)
 
     if event != "cardUpdate":
         return {"ignored": True, "reason": "event"}
@@ -189,6 +213,49 @@ async def planka_hook(
     return {"ok": True, "issue_iid": issue_iid, "issue_url": issue_url}
 
 
+async def _planka_comment_create(payload: dict[str, Any]) -> dict:
+    comment = _extract_comment(payload.get("data"))
+    if not comment:
+        return {"ignored": True, "reason": "no-comment"}
+
+    text = comment.get("text") or comment.get("body") or ""
+    if not comments.should_mirror_outbound(text):
+        return {"ignored": True, "reason": "bridged-or-system"}
+
+    card_id = str(comment.get("cardId") or "")
+    if not card_id:
+        # sometimes only card in included
+        card = _extract_card(payload.get("data"))
+        card_id = str((card or {}).get("id") or "")
+    if not card_id:
+        return {"ignored": True, "reason": "no-card-id"}
+
+    link = store.get_by_card(card_id)
+    if not link:
+        return {"ignored": True, "reason": "no-link"}
+
+    user = payload.get("user") or {}
+    author = (
+        user.get("name")
+        or user.get("username")
+        or user.get("email")
+        or "Planka"
+    )
+    body = comments.wrap_from_planka(str(author), text)
+    note = await gitlab.create_note(int(link["issue_iid"]), body)
+    log.info(
+        "mirrored planka comment → gitlab !%s note=%s",
+        link["issue_iid"],
+        note.get("id"),
+    )
+    return {
+        "ok": True,
+        "mirrored": "planka-to-gitlab",
+        "issue_iid": link["issue_iid"],
+        "note_id": note.get("id"),
+    }
+
+
 @app.post("/hooks/gitlab")
 async def gitlab_hook(
     request: Request,
@@ -203,9 +270,60 @@ async def gitlab_hook(
     event_header = (x_gitlab_event or "").lower()
     log.info("gitlab event_header=%s object_kind=%s", event_header, object_kind)
 
+    if object_kind in ("note", "emoji") or "note" in event_header:
+        return await _gitlab_note(payload)
+
     if object_kind != "issue" and "issue" not in event_header:
         return {"ignored": True, "reason": "not-issue"}
 
+    return await _gitlab_issue_close(payload)
+
+
+async def _gitlab_note(payload: dict[str, Any]) -> dict:
+    attrs = payload.get("object_attributes") or {}
+    noteable = (attrs.get("noteable_type") or "").lower()
+    if noteable and noteable not in ("issue", "workitem", "work_item"):
+        return {"ignored": True, "reason": "not-issue-note", "noteable": noteable}
+
+    # only new comments
+    action = (attrs.get("action") or "create").lower()
+    if action not in ("create", ""):
+        return {"ignored": True, "reason": "not-create", "action": action}
+
+    if attrs.get("system"):
+        return {"ignored": True, "reason": "system-note"}
+
+    text = attrs.get("note") or attrs.get("body") or ""
+    if not comments.should_mirror_outbound(text):
+        return {"ignored": True, "reason": "bridged-or-system"}
+
+    issue = payload.get("issue") or payload.get("work_item") or {}
+    issue_iid = issue.get("iid") or attrs.get("noteable_iid")
+    if not issue_iid:
+        return {"ignored": True, "reason": "no-iid"}
+
+    card_id = _resolve_card_id_for_issue(
+        int(issue_iid),
+        issue.get("description") or "",
+    )
+    if not card_id:
+        log.info("no planka link for note on issue !%s", issue_iid)
+        return {"ignored": True, "reason": "no-link"}
+
+    user = payload.get("user") or {}
+    author = user.get("name") or user.get("username") or "GitLab"
+    body = comments.wrap_from_gitlab(str(author), text)
+    await planka.add_comment(card_id, body)
+    log.info("mirrored gitlab note → planka card %s (!%s)", card_id, issue_iid)
+    return {
+        "ok": True,
+        "mirrored": "gitlab-to-planka",
+        "card_id": card_id,
+        "issue_iid": issue_iid,
+    }
+
+
+async def _gitlab_issue_close(payload: dict[str, Any]) -> dict:
     attrs = payload.get("object_attributes") or {}
     if not _is_issue_close(attrs):
         return {
@@ -219,17 +337,15 @@ async def gitlab_hook(
     if not issue_iid:
         return {"ignored": True, "reason": "no-iid"}
 
-    link = store.get_by_issue_iid(int(issue_iid))
-    card_id = link["card_id"] if link else None
-    if not card_id:
-        m = CARD_MARKER_RE.search(attrs.get("description") or "")
-        if m:
-            card_id = m.group(1)
-
+    card_id = _resolve_card_id_for_issue(
+        int(issue_iid),
+        attrs.get("description") or "",
+    )
     if not card_id:
         log.info("no planka link for issue !%s", issue_iid)
         return {"ignored": True, "reason": "no-link"}
 
+    link = store.get_by_issue_iid(int(issue_iid))
     full = await planka.get_card(card_id)
     card_item = full.get("item") or {}
     board_id = str(card_item.get("boardId") or (link or {}).get("board_id") or "")
@@ -237,8 +353,6 @@ async def gitlab_hook(
     if not board_id:
         raise HTTPException(status_code=500, detail="card has no boardId")
 
-    # Двигаем только если карточка ещё в колонке-триггере.
-    # Если уже унесли вручную (Тестируется и т.п.) — не трогаем, чтобы не перепрыгнуть.
     board_data = await planka.get_board(board_id)
     lists = sorted(
         [

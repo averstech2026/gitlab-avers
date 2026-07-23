@@ -232,3 +232,14 @@ class GitLabClient:
             )
             r.raise_for_status()
             return r.json()
+
+    async def create_note(self, issue_iid: int, body: str) -> dict:
+        project_id = await self.resolve_project_id()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(
+                f"{self.base}/api/v4/projects/{project_id}/issues/{int(issue_iid)}/notes",
+                headers=self._headers(),
+                json={"body": body},
+            )
+            r.raise_for_status()
+            return r.json()
