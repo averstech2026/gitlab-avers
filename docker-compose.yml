@@ -15,7 +15,7 @@ services:
         gitlab_rails['gitlab_shell_ssh_port'] = 2222
         gitlab_rails['allow_local_requests_from_web_hooks_and_services'] = true
         gitlab_rails['allow_local_requests_from_system_hooks'] = true
-        nginx['custom_gitlab_server_config'] = "location /mfc/ {\n  proxy_pass http://mfc-fast-create:8787/;\n  proxy_http_version 1.1;\n  proxy_set_header Host $host;\n  proxy_set_header X-Real-IP $remote_addr;\n  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n  proxy_set_header X-Forwarded-Proto https;\n  proxy_read_timeout 300;\n}\n"
+        nginx['custom_gitlab_server_config'] = "location /mfc/ {\n  proxy_pass http://mfc-fast-create:8787/;\n  proxy_http_version 1.1;\n  proxy_set_header Host $$host;\n  proxy_set_header X-Real-IP $$remote_addr;\n  proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;\n  proxy_set_header X-Forwarded-Proto https;\n  proxy_read_timeout 300;\n}\n"
     ports:
       - '8080:80'
       - '2222:22'

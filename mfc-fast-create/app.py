@@ -22,7 +22,8 @@ from okdesk import OkdeskClient, OkdeskError
 from parser import parse_list
 
 ROOT = Path(__file__).resolve().parent
-REPO_ROOT = ROOT.parents[1]
+# In Docker image ROOT is /app — no repo parents
+REPO_ROOT = ROOT.parents[1] if len(ROOT.parents) > 1 else ROOT
 
 # Prefer tool-local .env, then repo root
 load_dotenv(ROOT / ".env")
