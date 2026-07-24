@@ -725,8 +725,14 @@ function renderTable() {
       type: "text",
       className: "input input--sm combo__input",
       "data-field": "object",
-      placeholder: row.object_id ? row.object_name : "Поиск объекта MFC…",
-      value: row.object_id ? row.object_name || "" : row.object_query || row.object_hint || "",
+      placeholder: row.object_id
+        ? row.object_name
+        : row.object_hint
+          ? `Искали: ${row.object_hint}`
+          : "Поиск объекта MFC…",
+      value: row.object_id
+        ? row.object_name || ""
+        : row.object_query || "",
       disabled: row.status === "ok",
       autocomplete: "off",
     });
@@ -867,9 +873,12 @@ function renderTable() {
     });
     clearBtn.addEventListener("click", () => {
       setObject(null, null);
-      objSearch.value = row.object_hint || "";
+      objSearch.value = "";
+      objSearch.placeholder = row.object_hint
+        ? `Искали: ${row.object_hint}`
+        : "Поиск объекта MFC…";
       objSearch.focus();
-      openSearch(objSearch.value.trim());
+      openSearch("");
     });
 
     combo.append(objSearch, clearBtn);
@@ -1039,22 +1048,57 @@ function applyParsedRows(dataRows, { fingerprintValue } = {}) {
   } else {
     toast(`В таблице ${state.rows.length} строк(и).`, "ok");
   }
+  syncApplyEnabled({ updateHint: false });
 }
 
 function syncApplyEnabled({ updateHint = true } = {}) {
   const paste = document.getElementById("paste");
   const btn = document.getElementById("btn-apply");
+  const clearBtn = document.getElementById("btn-clear-list");
   const hint = document.getElementById("apply-hint");
   if (!paste || !btn) return;
   const hasText = !!paste.value.trim();
+  const hasRows = (state.rows || []).length > 0;
   if (!btn.classList.contains("is-busy")) {
     btn.disabled = !hasText;
+  }
+  if (clearBtn && !clearBtn.classList.contains("is-busy")) {
+    clearBtn.disabled = !hasText && !hasRows;
   }
   if (updateHint && hint && !btn.classList.contains("is-busy")) {
     hint.textContent = hasText
       ? "Можно нажать «Применить»."
       : "Вставьте список — кнопка «Применить» станет активной.";
   }
+}
+
+function clearPasteAndTable() {
+  const paste = document.getElementById("paste");
+  if (paste) paste.value = "";
+  state.rows = [];
+  state.appliedFingerprint = null;
+  state.isTasks = [];
+  const stepTable = document.getElementById("step-table");
+  if (stepTable) stepTable.hidden = true;
+  const tbody = document.querySelector("#grid tbody");
+  if (tbody) tbody.innerHTML = "";
+  document.querySelectorAll(".combo__list--row").forEach((n) => n.remove());
+  setStep1Collapsed(false);
+  setActiveNav(1);
+  const summary = document.getElementById("step1-summary");
+  if (summary) {
+    summary.hidden = true;
+    summary.textContent = "";
+  }
+  const applyStatus = document.getElementById("apply-status");
+  if (applyStatus) applyStatus.hidden = true;
+  const meta = document.getElementById("meta");
+  if (meta && state.catalogs) {
+    /* keep catalogs meta */
+  }
+  syncApplyEnabled();
+  updateSubmitState();
+  toast("Список очищен.", "ok");
 }
 
 function setApplyBusy(busy, message) {
@@ -1220,11 +1264,17 @@ async function init() {
 
   const pasteEl = document.getElementById("paste");
   const applyBtn = document.getElementById("btn-apply");
+  const clearListBtn = document.getElementById("btn-clear-list");
   pasteEl?.addEventListener("input", syncApplyEnabled);
   pasteEl?.addEventListener("change", syncApplyEnabled);
   pasteEl?.addEventListener("paste", () => setTimeout(syncApplyEnabled, 0));
   applyBtn?.addEventListener("click", () => {
     applyPasteList().catch((e) => toast(String(e.message || e), "error"));
+  });
+  clearListBtn?.addEventListener("click", () => {
+    if (!pasteEl?.value.trim() && !(state.rows || []).length) return;
+    if ((state.rows || []).length && !confirm("Очистить поле списка и таблицу?")) return;
+    clearPasteAndTable();
   });
   syncApplyEnabled();
 

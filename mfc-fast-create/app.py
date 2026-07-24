@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from fuzzy import best_matches, suggest_typical
+from fuzzy import best_matches, score_match, suggest_typical
 from intraservice import credentials_configured, enrich_row, list_tasks, IntraserviceError
 from okdesk import OkdeskClient, OkdeskError
 from parser import parse_list
@@ -543,10 +543,14 @@ def parse_endpoint(body: ParseRequest) -> dict[str, Any]:
         object_candidates: list[dict] = []
         if row.get("object_hint") and objects:
             object_candidates = best_matches(
-                row["object_hint"], objects, limit=5, min_score=0.4
+                row["object_hint"], objects, limit=5, min_score=0.55
             )
+            # Автоподстановка только при уверенном совпадении (не «пп»↔«пп63»)
             if object_candidates:
-                suggested_object = object_candidates[0]
+                top = object_candidates[0]
+                sc = score_match(row["object_hint"], str(top.get("name") or ""))
+                if sc >= 0.75:
+                    suggested_object = top
 
         suggested_typical = None
         if row.get("typical_hint"):

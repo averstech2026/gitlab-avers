@@ -16,6 +16,21 @@ def normalize(s: str) -> str:
     return s.strip()
 
 
+def compact(s: str) -> str:
+    """ПП 12 → пп12 — для кодов точек без пробелов."""
+    return re.sub(r"\s+", "", normalize(s))
+
+
+def _meaningful_prefix(a: str, b: str) -> bool:
+    if not a or not b:
+        return False
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    # слишком короткие префиксы («пп», «12») дают ложные пп63↔ПП …
+    if len(shorter) < 3:
+        return False
+    return longer.startswith(shorter)
+
+
 def score_match(query: str, candidate: str) -> float:
     q = normalize(query)
     c = normalize(candidate)
@@ -23,21 +38,41 @@ def score_match(query: str, candidate: str) -> float:
         return 0.0
     if q == c:
         return 1.0
-    if q in c or c in q:
+
+    qc = compact(query)
+    cc = compact(candidate)
+    if qc and cc:
+        if qc == cc:
+            return 1.0
+        # полный код точки внутри имени объекта
+        if len(qc) >= 3 and qc in cc:
+            return 0.9
+        if len(cc) >= 3 and cc in qc:
+            return 0.85
+
+    if q in c and len(q) >= 3:
         return 0.85
+    if c in q and len(c) >= 3:
+        return 0.85
+
     q_tokens = set(q.split())
     c_tokens = set(c.split())
     if not q_tokens:
         return 0.0
     overlap = len(q_tokens & c_tokens) / len(q_tokens)
-    # bonus if all query chars appear in order (loose)
     if overlap >= 0.5:
         return 0.5 + 0.4 * overlap
-    # prefix of first token
+
     qt = next(iter(q_tokens))
     for ct in c_tokens:
-        if ct.startswith(qt) or qt.startswith(ct):
-            return 0.45
+        if _meaningful_prefix(qt, ct):
+            return 0.55
+    # compact token vs compact candidate pieces
+    if qc and len(qc) >= 4:
+        for ct in c_tokens:
+            ctc = compact(ct)
+            if ctc and _meaningful_prefix(qc, ctc):
+                return 0.55
     return 0.0
 
 
@@ -63,7 +98,6 @@ def suggest_typical(hint: str, typicals: list[str], aliases: dict[str, str]) -> 
     if not hint:
         return None
     h = normalize(hint)
-    # exact alias keys (longer first)
     for key in sorted(aliases.keys(), key=len, reverse=True):
         if normalize(key) in h or h in normalize(key):
             return aliases[key]
