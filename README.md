@@ -48,3 +48,16 @@ docker compose logs -f planka-bridge
 
 1. На Test-доске перенести карточку в «В работе (очередь Git)» → Issue в AVERS + комментарий со ссылкой.
 2. Закрыть Issue → колонка «Тестирование» (или следующая на этой доске).
+
+## MFC fast create
+
+UI: [ShiftPlanner MFC](https://averstech2026.github.io/ShiftPlanner/mfc-tool.html)  
+API: `https://git.averstech.ru/mfc/` (прокси GitLab nginx → контейнер `mfc-fast-create`).
+
+```bash
+cd /opt/gitlab
+# скопировать mfc-fast-create/ (с .env), обновить docker-compose.yml
+docker compose up -d --build mfc-fast-create
+docker compose up -d gitlab   # подхватить nginx['custom_gitlab_server_config']
+curl -sS https://git.averstech.ru/mfc/api/mfc/health
+```

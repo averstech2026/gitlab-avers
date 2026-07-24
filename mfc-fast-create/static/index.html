@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MFC fast create — Аверс</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app-shell" id="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Навигация">
+      <div class="sidebar__top">
+        <button
+          type="button"
+          class="sidebar__toggle"
+          id="btn-sidebar-toggle"
+          aria-controls="sidebar"
+          aria-expanded="true"
+          title="Свернуть меню"
+        >
+          <span class="hamburger" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </span>
+          <span class="sidebar__toggle-label">Меню</span>
+        </button>
+        <div class="sidebar__brand">
+          <div class="sidebar__logo">А</div>
+          <div class="sidebar__brand-text">
+            <div class="sidebar__name">Аверс Технолоджи</div>
+            <div class="sidebar__tag">Okdesk · MFC</div>
+          </div>
+        </div>
+      </div>
+      <nav class="sidebar__nav">
+        <div class="sidebar__section-label">Разделы</div>
+        <a class="sidebar__link is-active" id="nav-step-1" href="#step-input" title="Список задач">
+          <span class="sidebar__num">1</span>
+          <span class="sidebar__link-text">
+            <span class="sidebar__link-title">Список задач</span>
+            <span class="sidebar__link-sub">Вставка и разбор</span>
+          </span>
+        </a>
+        <a class="sidebar__link" id="nav-step-2" href="#step-table" title="Заполнение">
+          <span class="sidebar__num">2</span>
+          <span class="sidebar__link-text">
+            <span class="sidebar__link-title">Заполнение</span>
+            <span class="sidebar__link-sub">Объекты и создание</span>
+          </span>
+        </a>
+      </nav>
+      <div class="sidebar__footer" id="meta">загрузка…</div>
+    </aside>
+    <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+
+    <main class="app-main">
+      <div class="page">
+        <header class="page-header">
+          <div class="page-header__title">
+            <button
+              type="button"
+              class="menu-burger"
+              id="btn-menu-open"
+              aria-label="Открыть меню"
+              title="Меню"
+            >
+              <span class="hamburger" aria-hidden="true">
+                <span></span><span></span><span></span>
+              </span>
+            </button>
+            <div>
+              <h1>MFC FAST CREATE</h1>
+              <p class="page-header__sub">
+                Вставьте список → примените → заполните объект / typical / способ → создайте и закройте в Okdesk
+              </p>
+            </div>
+          </div>
+          <div class="page-header__actions home-status-badges">
+            <label
+              class="dry-run-chip"
+              id="dry-run-chip"
+              title="Если включено — заявки в Okdesk не создаются, только проверка заполнения"
+            >
+              <input type="checkbox" id="dry-run" checked />
+              <span class="dry-run-chip__ui" aria-hidden="true"></span>
+              <span class="dry-run-chip__text">Dry-run</span>
+            </label>
+            <button
+              type="button"
+              class="cloud-status-badge cloud-status-badge--checking"
+              id="badge-okdesk"
+              title="Подробнее про интеграцию Okdesk"
+            >
+              <span class="status-dot pulsing" aria-hidden="true"></span>
+              <span class="cloud-icon" aria-hidden="true">◎</span>
+              <span class="status-text">Okdesk…</span>
+            </button>
+            <button
+              type="button"
+              class="cloud-status-badge cloud-status-badge--checking"
+              id="badge-intraservice"
+              title="Подробнее про интеграцию IntraService"
+            >
+              <span class="status-dot pulsing" aria-hidden="true"></span>
+              <span class="cloud-icon" aria-hidden="true">☁</span>
+              <span class="status-text">IntraService…</span>
+            </button>
+          </div>
+        </header>
+
+        <section class="context-bar" aria-label="Клиент и ответственный">
+          <div class="context-bar__item">
+            <span class="context-bar__label" id="label-company">Клиент (компания)</span>
+            <div class="context-combo" id="combo-company" aria-labelledby="label-company"></div>
+          </div>
+          <div class="context-bar__item context-bar__item--grow">
+            <span class="context-bar__label" id="label-assignee">Закрывает / ответственный</span>
+            <div class="context-combo" id="combo-assignee" aria-labelledby="label-assignee"></div>
+          </div>
+          <div class="context-bar__item context-bar__item--hint">
+            <span class="context-bar__label context-bar__label--spacer" aria-hidden="true">&nbsp;</span>
+            <div class="context-bar__hint" id="context-hint">
+              <span>Объекты — только у выбранного клиента.</span>
+              <span>Ответственный — поиск по активным инженерам.</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- STEP 1 -->
+        <section class="corner-frame" id="step-input">
+          <div class="corner-frame__content">
+            <button
+              type="button"
+              class="accordion-toggle"
+              id="btn-toggle-step1"
+              aria-expanded="true"
+              aria-controls="step1-body"
+            >
+              <span class="accordion-toggle__left">
+                <span class="accordion-toggle__chevron" aria-hidden="true"></span>
+                <span class="accordion-toggle__title">1. Список задач</span>
+                <span class="accordion-toggle__summary" id="step1-summary" hidden></span>
+              </span>
+              <span class="accordion-toggle__action" id="step1-toggle-label">Свернуть</span>
+            </button>
+
+            <div id="step1-body">
+              <p class="section-lead">
+                Одна строка — одна заявка. Вставьте ссылки
+                <code>help.ucg.ru/Task/View/…</code> и/или короткие заголовки
+                (<code>ПП12. Закрыть смену</code>), затем нажмите <strong>Применить</strong>.
+              </p>
+
+              <label class="field-label" for="paste">Текст списка</label>
+              <textarea
+                id="paste"
+                class="input input--area"
+                rows="8"
+                placeholder="https://help.ucg.ru/Task/View/136601&#10;ПП12. Закрыть смену&#10;Сбер. Оплата"
+              ></textarea>
+
+              <div class="toolbar">
+                <div class="mfc-only" id="mfc-enrich-wrap">
+                  <label class="switch" title="Для ссылок help.ucg.ru подставить тему и описание заявки">
+                    <input type="checkbox" id="enrich" />
+                    <span class="switch__ui"></span>
+                    <span class="switch__text">Подтянуть тему и описание из help.ucg.ru</span>
+                  </label>
+                </div>
+
+                <div class="toolbar__spacer"></div>
+
+                <button type="button" class="btn btn--create" id="btn-apply" disabled>
+                  Применить
+                </button>
+              </div>
+              <div class="apply-status" id="apply-status" hidden>
+                <span class="apply-status__spinner" aria-hidden="true"></span>
+                <span id="apply-status-text">Разбор списка…</span>
+              </div>
+              <p class="hint" id="apply-hint">Вставьте список — кнопка «Применить» станет активной.</p>
+
+              <details class="more-block mfc-only" id="is-details">
+                <summary class="more-block__summary">
+                  <span class="accordion-toggle__chevron" aria-hidden="true"></span>
+                  <span class="more-block__summary-text">Нет готового списка? Выбрать заявки на help.ucg.ru</span>
+                  <span class="more-block__summary-action"></span>
+                </summary>
+                <p class="section-lead" style="margin-top:12px">
+                  Каталог IntraService. Отметьте нужные → ссылки в поле выше → снова
+                  <strong>Применить</strong>. Обычный путь — вставить список вручную.
+                </p>
+                <div class="toolbar">
+                  <button type="button" class="btn btn--outline" id="btn-is-optional">
+                    Показать заявки help.ucg.ru
+                  </button>
+                </div>
+              </details>
+            </div>
+          </div>
+        </section>
+
+        <!-- optional IntraService picker -->
+        <section class="panel" id="is-panel" hidden>
+          <div class="section-title">
+            <span>Каталог help.ucg.ru</span>
+            <span class="section-title__line"></span>
+          </div>
+          <p class="section-lead" id="is-status">Отметьте заявки и вставьте ссылки в поле списка.</p>
+          <div class="toolbar">
+            <input type="text" class="input" id="is-q" placeholder="Поиск: номер, текст, компания…" />
+            <button type="button" class="btn btn--outline" id="btn-is-load">Обновить</button>
+            <button type="button" class="btn btn--create" id="btn-is-to-paste">Вставить в поле списка</button>
+            <button type="button" class="btn btn--outline" id="btn-is-close">Скрыть</button>
+          </div>
+          <div class="table-scroll table-scroll--sm">
+            <table class="data-table" id="is-grid">
+              <thead>
+                <tr>
+                  <th class="col-check"></th>
+                  <th class="col-id">ID</th>
+                  <th>Тема</th>
+                  <th>Компания</th>
+                  <th class="col-link">Ссылка</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- STEP 2 -->
+        <section class="corner-frame" id="step-table" hidden>
+          <div class="corner-frame__content">
+            <div class="section-title">
+              <span>2. Заполнение и проверка</span>
+              <span class="section-title__line"></span>
+            </div>
+            <div class="stats-block">
+              <p class="stats-line" id="stats" aria-live="polite"></p>
+              <p class="stats-note" id="stats-note">
+                <strong>С ошибками заполнения</strong> — отмеченные строки, которые ещё нельзя создать:
+                нет объекта MFC, типовой проблемы или способа решения; либо выбрано осложнение +15/+30 без пояснения;
+                либо в N не число. Такие строки подсвечиваются при попытке создать.
+              </p>
+            </div>
+
+            <div class="table-scroll">
+              <table class="data-table data-table--wide" id="grid">
+                <thead>
+                  <tr>
+                    <th class="col-check"></th>
+                    <th class="col-status">Статус</th>
+                    <th class="col-theme">Тема / ссылка UCG</th>
+                    <th class="col-object">Объект MFC</th>
+                    <th class="col-typical">Типовая проблема</th>
+                    <th class="col-solution">Способ решения</th>
+                    <th class="col-n" title="Число объектов в пакете: точки/кассы. Баллы = база × N. Для разовой заявки — 1 или пусто">N</th>
+                    <th class="col-comp">Осложнение</th>
+                    <th class="col-desc">Описание заявки</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+
+            <div class="footer-actions">
+              <label class="field-inline footer-actions__comment">
+                Комментарий при закрытии
+                <input type="text" class="input" id="batch-comment" placeholder="опционально, для всех заявок пачки" />
+              </label>
+              <p class="hint" id="ready-hint"></p>
+              <button type="button" class="btn btn--primary btn--lg" id="btn-submit" disabled>
+                Создать и закрыть в Okdesk
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" hidden role="status"></div>
+
+  <div class="modal-overlay" id="status-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="status-modal-title">
+      <div class="modal__header">
+        <h2 id="status-modal-title">Интеграция</h2>
+        <button type="button" class="modal__close" id="status-modal-close" aria-label="Закрыть">×</button>
+      </div>
+      <div class="modal__body" id="status-modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
