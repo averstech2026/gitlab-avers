@@ -61,3 +61,5 @@ docker compose up -d --build mfc-fast-create
 docker compose up -d gitlab   # подхватить nginx['custom_gitlab_server_config']
 curl -sS https://git.averstech.ru/mfc/api/mfc/health
 ```
+
+Снимок контекста: [docs/CONTINUE-2026-07-24.md](docs/CONTINUE-2026-07-24.md).
